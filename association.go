@@ -119,53 +119,6 @@ type McuConn interface {
 	Close() error
 }
 
-/*
-// ToDO: remove from here
-func NewMcuConn(nc net.Conn) McuConn {
-	d := &dummyMcuConn{
-		nc: nc,
-	}
-	return d
-}
-
-// useless, just for tests
-type dummyMcuConn struct {
-	nc net.Conn
-	f  func([]byte)
-}
-
-func (d *dummyMcuConn) SetCB(f func([]byte)) {
-	d.f = f
-}
-func (d *dummyMcuConn) SetReadDeadline(t time.Time) error {
-	return d.nc.SetReadDeadline(t)
-}
-func (d *dummyMcuConn) SetWriteDeadline(t time.Time) error {
-	return d.nc.SetWriteDeadline(t)
-}
-func (d *dummyMcuConn) Read(b []byte) (n int, err error) {
-	return d.nc.Read(b)
-}
-
-func (d *dummyMcuConn) Write(b []byte) (n int, err error) {
-	return d.nc.Write(b)
-}
-func (d *dummyMcuConn) Close() error {
-	return d.nc.Close()
-}
-func (d *dummyMcuConn) LocalAddr() net.Addr {
-	return d.nc.LocalAddr()
-}
-
-func (d *dummyMcuConn) RemoteAddr() net.Addr {
-	return d.nc.RemoteAddr()
-}
-func (d *dummyMcuConn) SetDeadline(t time.Time) error {
-	return d.nc.SetDeadline(t)
-}
-// till here
-*/
-
 // Association represents an SCTP association
 // 13.2.  Parameters Necessary per Association (i.e., the TCB)
 // Peer        : Tag value to be sent in every packet and is received
