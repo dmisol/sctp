@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -114,6 +113,59 @@ func getAssociationStateString(a uint32) string {
 	}
 }
 
+type McuConn interface {
+	SetCB(func([]byte))
+	Write([]byte) (n int, err error)
+	Close() error
+}
+
+/*
+// ToDO: remove from here
+func NewMcuConn(nc net.Conn) McuConn {
+	d := &dummyMcuConn{
+		nc: nc,
+	}
+	return d
+}
+
+// useless, just for tests
+type dummyMcuConn struct {
+	nc net.Conn
+	f  func([]byte)
+}
+
+func (d *dummyMcuConn) SetCB(f func([]byte)) {
+	d.f = f
+}
+func (d *dummyMcuConn) SetReadDeadline(t time.Time) error {
+	return d.nc.SetReadDeadline(t)
+}
+func (d *dummyMcuConn) SetWriteDeadline(t time.Time) error {
+	return d.nc.SetWriteDeadline(t)
+}
+func (d *dummyMcuConn) Read(b []byte) (n int, err error) {
+	return d.nc.Read(b)
+}
+
+func (d *dummyMcuConn) Write(b []byte) (n int, err error) {
+	return d.nc.Write(b)
+}
+func (d *dummyMcuConn) Close() error {
+	return d.nc.Close()
+}
+func (d *dummyMcuConn) LocalAddr() net.Addr {
+	return d.nc.LocalAddr()
+}
+
+func (d *dummyMcuConn) RemoteAddr() net.Addr {
+	return d.nc.RemoteAddr()
+}
+func (d *dummyMcuConn) SetDeadline(t time.Time) error {
+	return d.nc.SetDeadline(t)
+}
+// till here
+*/
+
 // Association represents an SCTP association
 // 13.2.  Parameters Necessary per Association (i.e., the TCB)
 // Peer        : Tag value to be sent in every packet and is received
@@ -137,7 +189,7 @@ type Association struct {
 
 	lock sync.RWMutex
 
-	netConn net.Conn
+	netConn McuConn //net.Conn
 
 	peerVerificationTag    uint32
 	myVerificationTag      uint32
@@ -226,7 +278,7 @@ type Association struct {
 // Config collects the arguments to createAssociation construction into
 // a single structure
 type Config struct {
-	NetConn              net.Conn
+	NetConn              McuConn //net.Conn
 	MaxReceiveBufferSize uint32
 	MaxMessageSize       uint32
 	LoggerFactory        logging.LoggerFactory
@@ -337,7 +389,7 @@ func (a *Association) init(isClient bool) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
-	go a.readLoop()
+	a.netConn.SetCB(a.ServePacket)
 	go a.writeLoop()
 
 	if isClient {
@@ -480,52 +532,39 @@ func (a *Association) closeAllTimers() {
 	a.ackTimer.close()
 }
 
-func (a *Association) readLoop() {
-	var closeErr error
-	defer func() {
-		// also stop writeLoop, otherwise writeLoop can be leaked
-		// if connection is lost when there is no writing packet.
-		a.closeWriteLoopOnce.Do(func() { close(a.closeWriteLoopCh) })
-
-		a.lock.Lock()
-		for _, s := range a.streams {
-			a.unregisterStream(s, closeErr)
-		}
-		a.lock.Unlock()
-		close(a.acceptCh)
-		close(a.readLoopCloseCh)
-
-		a.log.Debugf("[%s] association closed", a.name)
-		a.log.Debugf("[%s] stats nDATAs (in) : %d", a.name, a.stats.getNumDATAs())
-		a.log.Debugf("[%s] stats nSACKs (in) : %d", a.name, a.stats.getNumSACKs())
-		a.log.Debugf("[%s] stats nT3Timeouts : %d", a.name, a.stats.getNumT3Timeouts())
-		a.log.Debugf("[%s] stats nAckTimeouts: %d", a.name, a.stats.getNumAckTimeouts())
-		a.log.Debugf("[%s] stats nFastRetrans: %d", a.name, a.stats.getNumFastRetrans())
-	}()
-
-	a.log.Debugf("[%s] readLoop entered", a.name)
-	buffer := make([]byte, receiveMTU)
-
-	for {
-		n, err := a.netConn.Read(buffer)
-		if err != nil {
-			closeErr = err
-			break
-		}
-		// Make a buffer sized to what we read, then copy the data we
-		// read from the underlying transport. We do this because the
-		// user data is passed to the reassembly queue without
-		// copying.
-		inbound := make([]byte, n)
-		copy(inbound, buffer[:n])
-		atomic.AddUint64(&a.bytesReceived, uint64(n))
-		if err = a.handleInbound(inbound); err != nil {
-			closeErr = err
-			break
-		}
+func (a *Association) ServePacket(buffer []byte) {
+	n := len(buffer)
+	// Make a buffer sized to what we read, then copy the data we
+	// read from the underlying transport. We do this because the
+	// user data is passed to the reassembly queue without
+	// copying.
+	inbound := make([]byte, n)
+	copy(inbound, buffer[:n])
+	atomic.AddUint64(&a.bytesReceived, uint64(n))
+	if err := a.handleInbound(inbound); err != nil {
+		a.stop(err)
 	}
+}
 
-	a.log.Debugf("[%s] readLoop exited %s", a.name, closeErr)
+func (a *Association) stop(closeErr error) {
+	// also stop writeLoop, otherwise writeLoop can be leaked
+	// if connection is lost when there is no writing packet.
+	a.closeWriteLoopOnce.Do(func() { close(a.closeWriteLoopCh) })
+
+	a.lock.Lock()
+	for _, s := range a.streams {
+		a.unregisterStream(s, closeErr)
+	}
+	a.lock.Unlock()
+	close(a.acceptCh)
+	close(a.readLoopCloseCh)
+
+	a.log.Debugf("[%s] association closed", a.name)
+	a.log.Debugf("[%s] stats nDATAs (in) : %d", a.name, a.stats.getNumDATAs())
+	a.log.Debugf("[%s] stats nSACKs (in) : %d", a.name, a.stats.getNumSACKs())
+	a.log.Debugf("[%s] stats nT3Timeouts : %d", a.name, a.stats.getNumT3Timeouts())
+	a.log.Debugf("[%s] stats nAckTimeouts: %d", a.name, a.stats.getNumAckTimeouts())
+	a.log.Debugf("[%s] stats nFastRetrans: %d", a.name, a.stats.getNumFastRetrans())
 }
 
 func (a *Association) writeLoop() {

@@ -18,20 +18,5 @@
 </p>
 <br>
 
-See [DESIGN.md](DESIGN.md) for an overview of features and future goals.
-
-### Roadmap
-The library is used as a part of our WebRTC implementation. Please refer to that [roadmap](https://github.com/pion/webrtc/issues/9) to track our major milestones.
-
-### Community
-Pion has an active community on the [Golang Slack](https://invite.slack.golangbridge.org/). Sign up and join the **#pion** channel for discussions and support. You can also use [Pion mailing list](https://groups.google.com/forum/#!forum/pion).
-
-We are always looking to support **your projects**. Please reach out if you have something to build!
-
-If you need commercial support or don't want to use public methods you can contact us at [team@pion.ly](mailto:team@pion.ly)
-
-### Contributing
-Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contributing)** to join the group of amazing people making this project possible:
-
-### License
-MIT License - see [LICENSE](LICENSE) for full text
+### The Goal
+Adapting [pion sctp](https://github.com/pion/sctp) to [comdi mcu](https://github.com/comdii/mcu) and proprietary dtls implementation.
