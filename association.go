@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -115,7 +116,7 @@ func getAssociationStateString(a uint32) string {
 
 type McuConn interface {
 	SetCB(func([]byte))
-	Write([]byte) (n int, err error)
+	EncryptAndWrite([]byte) (n int, err error)
 	Close() error
 }
 
@@ -486,6 +487,7 @@ func (a *Association) closeAllTimers() {
 }
 
 func (a *Association) ServePacket(buffer []byte) {
+	log.Println("ServePacket in sctp asscn", len(buffer))
 	n := len(buffer)
 	// Make a buffer sized to what we read, then copy the data we
 	// read from the underlying transport. We do this because the
@@ -529,7 +531,8 @@ loop:
 		rawPackets, ok := a.gatherOutbound()
 
 		for _, raw := range rawPackets {
-			_, err := a.netConn.Write(raw)
+			_, err := a.netConn.EncryptAndWrite(raw)
+			log.Println("sctp asscn wrote", len(raw), nil)
 			if err != nil {
 				if err != io.EOF {
 					a.log.Warnf("[%s] failed to write packets on netConn: %v", a.name, err)
@@ -2235,6 +2238,7 @@ func (a *Association) handleChunkEnd() {
 }
 
 func (a *Association) handleChunk(p *packet, c chunk) error {
+	log.Println("handle chunk")
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
@@ -2249,6 +2253,7 @@ func (a *Association) handleChunk(p *packet, c chunk) error {
 	switch c := c.(type) {
 	case *chunkInit:
 		packets, err = a.handleInit(p, c)
+		log.Println("handle chunk init", err)
 
 	case *chunkInitAck:
 		err = a.handleInitAck(p, c)
@@ -2268,21 +2273,25 @@ func (a *Association) handleChunk(p *packet, c chunk) error {
 		a.log.Debugf("[%s] Error chunk, with following errors: %s", a.name, errStr)
 
 	case *chunkHeartbeat:
+		log.Println("handle chunk heartbeat")
 		packets = a.handleHeartbeat(c)
 
 	case *chunkCookieEcho:
+		log.Println("handle chunk echo")
 		packets = a.handleCookieEcho(c)
 
 	case *chunkCookieAck:
 		a.handleCookieAck()
 
 	case *chunkPayloadData:
+		log.Println("handle chunk payload data")
 		packets = a.handleData(c)
 
 	case *chunkSelectiveAck:
 		err = a.handleSack(c)
 
 	case *chunkReconfig:
+		log.Println("handle chunk recording")
 		packets, err = a.handleReconfig(c)
 
 	case *chunkForwardTSN:
