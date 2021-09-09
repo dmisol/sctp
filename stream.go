@@ -43,6 +43,15 @@ type Stream struct {
 	onBufferedAmountLow func()
 	log                 logging.LeveledLogger
 	name                string
+
+	deliverCB func([]byte, PayloadProtocolIdentifier)
+}
+
+func (s *Stream) SetCB(f func([]byte, PayloadProtocolIdentifier)) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	s.deliverCB = f
 }
 
 // StreamIdentifier returns the Stream identifier associated to the stream.
@@ -116,6 +125,22 @@ func (s *Stream) ReadSCTP(p []byte) (int, PayloadProtocolIdentifier, error) {
 	}
 }
 
+func (s *Stream) deliver() {
+	// is called mutex-protected
+
+	p := make([]byte, 2000)
+	if n, ppi, err := s.reassemblyQueue.read(p); err == nil {
+		s.deliverCB(p[:n], ppi)
+	}
+	/*
+		// TODO: similar to (see below), but the mutex is locked!
+		// not applicable in our case
+		else if err == io.EOF {
+			s.Close()
+		}
+	*/
+}
+
 func (s *Stream) handleData(pd *chunkPayloadData) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -126,6 +151,9 @@ func (s *Stream) handleData(pd *chunkPayloadData) {
 		s.log.Debugf("[%s] reassemblyQueue readable=%v", s.name, readable)
 		if readable {
 			s.log.Debugf("[%s] readNotifier.signal()", s.name)
+			if s.deliverCB != nil {
+				s.deliver()
+			}
 			s.readNotifier.Signal()
 			s.log.Debugf("[%s] readNotifier.signal() done", s.name)
 		}
@@ -151,6 +179,15 @@ func (s *Stream) handleForwardTSNForOrdered(ssn uint16) {
 
 	// Notify the reader asynchronously if there's a data chunk to read.
 	if readable {
+		func() {
+			s.lock.Lock()
+			defer s.lock.Unlock()
+			if s.deliverCB != nil {
+				s.deliver()
+				return
+			}
+
+		}()
 		s.readNotifier.Signal()
 	}
 }
@@ -174,6 +211,14 @@ func (s *Stream) handleForwardTSNForUnordered(newCumulativeTSN uint32) {
 
 	// Notify the reader asynchronously if there's a data chunk to read.
 	if readable {
+		func() {
+			s.lock.Lock()
+			defer s.lock.Unlock()
+			if s.deliverCB != nil {
+				s.deliver()
+				return
+			}
+		}()
 		s.readNotifier.Signal()
 	}
 }
