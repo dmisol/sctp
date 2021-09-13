@@ -3,9 +3,11 @@ package sctp
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -495,7 +497,9 @@ func (a *Association) ServePacket(buffer []byte) {
 	copy(inbound, buffer[:n])
 	atomic.AddUint64(&a.bytesReceived, uint64(n))
 	if err := a.handleInbound(inbound); err != nil {
-		a.stop(err)
+		log.Println("assocoation ServePacket", err)
+		log.Println(hex.Dump(inbound))
+		a.netConn.SetCB(nil) //a.stop(err)
 	}
 }
 
