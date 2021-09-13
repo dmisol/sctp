@@ -499,6 +499,7 @@ func (a *Association) ServePacket(buffer []byte) {
 	if err := a.handleInbound(inbound); err != nil {
 		log.Println("assocoation ServePacket", err)
 		log.Println(hex.Dump(inbound))
+
 		a.netConn.SetCB(nil) //a.stop(err)
 	}
 }
